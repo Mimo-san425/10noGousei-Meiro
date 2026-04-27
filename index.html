@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>10の合成 迷路</title>
+<style>
+body{margin:0;background:#fff8dc;text-align:center;font-family:sans-serif;}
+h1{margin:8px 0;font-size:30px;}
+#info{font-size:26px;font-weight:bold;margin-bottom:6px;}
+canvas{
+  background:white;
+  border:4px solid #333;
+  border-radius:12px;
+  touch-action:none;
+  max-width:92vw;
+  height:auto;
+}
+#clear{
+  position:fixed;
+  inset:0;
+  background:rgba(255,255,255,0.92);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  gap:18px;
+  font-size:56px;
+  font-weight:bold;
+  color:#e67e22;
+  overflow:hidden;
+  z-index:20;
+}
+#clear img{
+  width:300px;
+  max-width:80%;
+  animation:pop 0.6s ease;
+  z-index:2;
+}
+#clear div,#clear button{z-index:2;}
+#clear button{
+  font-size:28px;
+  padding:10px 24px;
+  border-radius:12px;
+}
+@keyframes pop{
+  0%{transform:scale(0);}
+  80%{transform:scale(1.1);}
+  100%{transform:scale(1);}
+}
+.sparkle{
+  position:absolute;
+  width:12px;
+  height:12px;
+  background:gold;
+  border-radius:50%;
+  pointer-events:none;
+  animation:spark 1s linear forwards;
+  z-index:1;
+}
+@keyframes spark{
+  0%{transform:scale(1) translate(0,0);opacity:1;}
+  100%{transform:scale(0) translate(var(--dx),var(--dy));opacity:0;}
+}
+</style>
+</head>
+<body>
+
+<h1>10の合成 迷路</h1>
+<div id="info"></div>
+<canvas id="game" width="560" height="560"></canvas>
+
+<div id="clear">
+  <img src="omedetou.png" alt="おめでとう">
+  <div>おめでとう！</div>
+  <button onclick="restart()">もういちど</button>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const info=document.getElementById("info");
+
+const S=8;
+const CELL=canvas.width/S;
+
+let maze=[];
+let route=[];
+let items=[];
+
+let q=1;
+let base=1;
+let ans=9;
+let px=0;
+let py=0;
+let got=false;
+let sparkleTimer=null;
+
+const start={x:0,y:0};
+const goal={x:7,y:7};
+
+function neighbors(x,y){
+  return [
+    {x:x+1,y:y},
+    {x:x-1,y:y},
+    {x:x,y:y+1},
+    {x:x,y:y-1}
+  ].filter(p=>p.x>=0&&p.y>=0&&p.x<S&&p.y<S);
+}
+
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+}
+
+function makeRandomPath(){
+  let path=[{x:0,y:0}];
+  let seen=new Set(["0,0"]);
+
+  function dfs(x,y){
+    if(x===goal.x && y===goal.y) return true;
+
+    let ns=neighbors(x,y);
+    shuffle(ns);
+    ns.sort((a,b)=>{
+      const da=Math.abs(a.x-goal.x)+Math.abs(a.y-goal.y)+Math.random()*3;
+      const db=Math.abs(b.x-goal.x)+Math.abs(b.y-goal.y)+Math.random()*3;
+      return da-db;
+    });
+
+    for(const n of ns){
+      const key=n.x+","+n.y;
+      if(seen.has(key)) continue;
+
+      seen.add(key);
+      path.push({x:n.x,y:n.y});
+
+      if(dfs(n.x,n.y)) return true;
+
+      path.pop();
+      seen.delete(key);
+    }
+    return false;
+  }
+
+  dfs(0,0);
+  return path;
+}
+
+function makeMaze(){
+  maze=[];
+  for(let y=0;y<S;y++){
+    maze.push(Array(S).fill(1));
+  }
+
+  const mainPath=makeRandomPath();
+
+  for(const p of mainPath){
+    maze[p.y][p.x]=0;
+  }
+
+  for(let i=0;i<28;i++){
+    const baseCell=mainPath[Math.floor(Math.random()*mainPath.length)];
+    let cx=baseCell.x;
+    let cy=baseCell.y;
+    const len=1+Math.floor(Math.random()*4);
+
+    for(let k=0;k<len;k++){
+      let ns=neighbors(cx,cy).filter(p=>maze[p.y][p.x]===1);
+      if(ns.length===0) break;
+
+      shuffle(ns);
+      const n=ns[0];
+      maze[n.y][n.x]=0;
+      cx=n.x;
+      cy=n.y;
+    }
+  }
+
+  maze[0][0]=0;
+  maze[7][7]=0;
+}
+
+function findRoute(){
+  const queue=[{x:0,y:0}];
+  const prev={};
+  prev["0,0"]=null;
+
+  while(queue.length>0){
+    const cur=queue.shift();
+
+    if(cur.x===goal.x && cur.y===goal.y) break;
+
+    for(const n of neighbors(cur.x,cur.y)){
+      const key=n.x+","+n.y;
+      if(maze[n.y][n.x]===0 && !(key in prev)){
+        prev[key]=cur;
+        queue.push(n);
+      }
+    }
+  }
+
+  if(!("7,7" in prev)) return null;
+
+  let path=[];
+  let cur={x:7,y:7};
+
+  while(cur){
+    path.push(cur);
+    cur=prev[cur.x+","+cur.y];
+  }
+
+  path.reverse();
+  return path;
+}
+
+function canReach(from,to,blocked){
+  const queue=[from];
+  const seen=new Set([from.x+","+from.y]);
+
+  while(queue.length>0){
+    const cur=queue.shift();
+
+    if(cur.x===to.x && cur.y===to.y) return true;
+
+    for(const n of neighbors(cur.x,cur.y)){
+      const key=n.x+","+n.y;
+      if(seen.has(key)) continue;
+      if(maze[n.y][n.x]===1) continue;
+      if(blocked.has(key)) continue;
+
+      seen.add(key);
+      queue.push(n);
+    }
+  }
+
+  return false;
+}
+
+function createCheckedMaze(){
+  for(let attempt=0; attempt<200; attempt++){
+    makeMaze();
+    route=findRoute();
+
+    if(!route || route.length<5) continue;
+
+    const answerIndex=Math.min(3, route.length-2);
+    const answerSpot=route[answerIndex];
+
+    let routeKeys=new Set(route.map(p=>p.x+","+p.y));
+
+    let wrongCells=[];
+    for(let y=0;y<S;y++){
+      for(let x=0;x<S;x++){
+        const key=x+","+y;
+        if(maze[y][x]===0 && !routeKeys.has(key)){
+          wrongCells.push({x,y});
+        }
+      }
+    }
+
+    shuffle(wrongCells);
+    wrongCells=wrongCells.slice(0,Math.min(6,wrongCells.length));
+
+    let blocked=new Set(wrongCells.map(p=>p.x+","+p.y));
+
+    if(
+      canReach(start,answerSpot,blocked) &&
+      canReach(answerSpot,goal,blocked)
+    ){
+      return {answerSpot,wrongCells};
+    }
+  }
+
+  maze=[
+    [0,0,0,0,1,0,0,0],
+    [1,1,1,0,1,0,1,0],
+    [0,0,0,0,0,0,1,0],
+    [0,1,1,1,1,0,1,0],
+    [0,0,0,0,1,0,0,0],
+    [1,1,1,0,1,1,1,0],
+    [0,0,0,0,0,0,1,0],
+    [0,1,1,1,1,0,0,0]
+  ];
+  route=findRoute();
+  return {
+    answerSpot:{x:2,y:0},
+    wrongCells:[{x:5,y:0},{x:0,y:2},{x:2,y:4},{x:0,y:6}]
+  };
+}
+
+function startQuestion(){
+  px=0;
+  py=0;
+  got=false;
+
+  base=Math.floor(Math.random()*9)+1;
+  ans=10-base;
+
+  info.textContent=`問題 ${q}/10　${base} と あわせて 10 になる数をとろう`;
+
+  const result=createCheckedMaze();
+  makeItems(result.answerSpot,result.wrongCells);
+  draw();
+}
+
+function makeItems(answerSpot,wrongCells){
+  items=[];
+
+  items.push({
+    x:answerSpot.x,
+    y:answerSpot.y,
+    n:ans,
+    correct:true,
+    taken:false
+  });
+
+  let wrongs=[];
+  for(let n=1;n<=9;n++){
+    if(n!==ans) wrongs.push(n);
+  }
+  shuffle(wrongs);
+
+  for(let i=0;i<wrongCells.length;i++){
+    items.push({
+      x:wrongCells[i].x,
+      y:wrongCells[i].y,
+      n:wrongs[i%wrongs.length],
+      correct:false,
+      taken:false
+    });
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  for(let y=0;y<S;y++){
+    for(let x=0;x<S;x++){
+      ctx.strokeStyle="#ccc";
+      ctx.lineWidth=1;
+      ctx.strokeRect(x*CELL,y*CELL,CELL,CELL);
+
+      if(maze[y][x]===1){
+        ctx.fillStyle="#444";
+        ctx.fillRect(x*CELL,y*CELL,CELL,CELL);
+      }
+    }
+  }
+
+  ctx.fillStyle="#9be28f";
+  ctx.fillRect(goal.x*CELL+8,goal.y*CELL+8,CELL-16,CELL-16);
+
+  ctx.fillStyle="#000";
+  ctx.font="bold 20px sans-serif";
+  ctx.textAlign="center";
+  ctx.textBaseline="middle";
+  ctx.fillText("ゴール",goal.x*CELL+CELL/2,goal.y*CELL+CELL/2);
+
+  for(const it of items){
+    if(it.taken) continue;
+
+    ctx.beginPath();
+    ctx.fillStyle="#ffd966";
+    ctx.arc(it.x*CELL+CELL/2,it.y*CELL+CELL/2,CELL*0.28,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle="#000";
+    ctx.font="bold 38px sans-serif";
+    ctx.fillText(it.n,it.x*CELL+CELL/2,it.y*CELL+CELL/2);
+  }
+
+  ctx.font="48px sans-serif";
+  ctx.fillText("★",px*CELL+CELL/2,py*CELL+CELL/2);
+}
+
+function moveTo(tx,ty){
+  const dx=tx-px;
+  const dy=ty-py;
+
+  if(Math.abs(dx)+Math.abs(dy)!==1) return;
+  if(tx<0 || ty<0 || tx>=S || ty>=S) return;
+  if(maze[ty][tx]===1) return;
+
+  px=tx;
+  py=ty;
+
+  checkItem();
+  checkGoal();
+  draw();
+}
+
+function checkItem(){
+  for(const it of items){
+    if(it.taken) continue;
+
+    if(it.x===px && it.y===py){
+      if(it.correct){
+        it.taken=true;
+        got=true;
+      }else{
+        px=0;
+        py=0;
+      }
+    }
+  }
+}
+
+function checkGoal(){
+  if(px===goal.x && py===goal.y){
+    if(!got){
+      px=0;
+      py=0;
+      return;
+    }
+
+    if(q>=10){
+      showClear();
+    }else{
+      q++;
+      startQuestion();
+    }
+  }
+}
+
+canvas.addEventListener("pointerdown",function(e){
+  e.preventDefault();
+
+  const rect=canvas.getBoundingClientRect();
+  const x=Math.floor((e.clientX-rect.left)/rect.width*S);
+  const y=Math.floor((e.clientY-rect.top)/rect.height*S);
+
+  moveTo(x,y);
+});
+
+document.addEventListener("keydown",e=>{
+  if(e.key==="ArrowUp") moveTo(px,py-1);
+  if(e.key==="ArrowDown") moveTo(px,py+1);
+  if(e.key==="ArrowLeft") moveTo(px-1,py);
+  if(e.key==="ArrowRight") moveTo(px+1,py);
+});
+
+function showClear(){
+  const clear=document.getElementById("clear");
+  clear.style.display="flex";
+  startSparkle();
+}
+
+function startSparkle(){
+  const clear=document.getElementById("clear");
+
+  if(sparkleTimer) clearInterval(sparkleTimer);
+
+  sparkleTimer=setInterval(()=>{
+    if(clear.style.display==="none"){
+      clearInterval(sparkleTimer);
+      sparkleTimer=null;
+      return;
+    }
+
+    const s=document.createElement("div");
+    s.className="sparkle";
+
+    const x=Math.random()*window.innerWidth;
+    const y=Math.random()*window.innerHeight;
+    const dx=(Math.random()-0.5)*260+"px";
+    const dy=(Math.random()-0.5)*260+"px";
+
+    s.style.left=x+"px";
+    s.style.top=y+"px";
+    s.style.setProperty("--dx",dx);
+    s.style.setProperty("--dy",dy);
+
+    clear.appendChild(s);
+
+    setTimeout(()=>s.remove(),1000);
+  },70);
+}
+
+function restart(){
+  q=1;
+  document.getElementById("clear").style.display="none";
+
+  if(sparkleTimer){
+    clearInterval(sparkleTimer);
+    sparkleTimer=null;
+  }
+
+  document.querySelectorAll(".sparkle").forEach(s=>s.remove());
+  startQuestion();
+}
+
+startQuestion();
+</script>
+
+</body>
+</html>
